@@ -1,4 +1,14 @@
 use bevy::prelude::*;
+use bevy::time::Stopwatch;
+use std::time::Duration;
+
+const PLAYER_SPRITE_X: f32 = 45.;
+const PLAYER_SPRITE_Y: f32 = 51.;
+
+const TOWER_SPAWN_DISTANCE: f32 = 25.;
+const SIMPLE_TOWER_SPAWN_CD: f32 = 5.;
+const SIMPLE_TOWER_X: f32 = 21.;
+const SIMPLE_TOWER_Y: f32 = 27.;
 
 #[derive(Component)]
 struct Health {
@@ -14,13 +24,30 @@ struct Speed {
 #[derive(Component)]
 struct Player;
 
+#[derive(Component)]
+struct SimpleTower;
+
+#[derive(Resource)]
+struct TowerStopwatch {
+    time: Stopwatch,
+}
+
+#[derive(Bundle)]
+struct SimpleTowerBundle {
+    health: Health,
+    tower: SimpleTower,
+    sprite: SpriteSheetBundle,
+}
 
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
-        .add_systems(Update, player_movement)
+        .add_systems(Update, (
+            player_movement,
+            spawn_tower,
+        ))
         .run();
 }
 
@@ -29,11 +56,20 @@ fn setup(
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
+    // load textures
+    // player texture
     let texture: Handle<Image>  = asset_server.load("disciple-45x51.png");
-    let layout = TextureAtlasLayout::from_grid(Vec2::new(45.,51.), 4, 3, None, None);
+    let layout = TextureAtlasLayout::from_grid(
+        Vec2::new(PLAYER_SPRITE_X, PLAYER_SPRITE_Y),
+        4,
+        3,
+        None,
+        None
+    );
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
+    // spawn camera
     commands.spawn(Camera2dBundle::default());
-
+    // spawn player
     commands.spawn((
         Player,
         Health {
@@ -52,6 +88,10 @@ fn setup(
             ..default()
         }
     ));
+    // insert timer
+    let mut stopwatch = Stopwatch::new();
+    stopwatch.set_elapsed(Duration::from_secs_f32(SIMPLE_TOWER_SPAWN_CD));
+    commands.insert_resource(TowerStopwatch { time: stopwatch });
 }
 
 fn player_movement(
@@ -75,7 +115,55 @@ fn player_movement(
         direction.x += 1.;
     }
     direction = direction.normalize_or_zero();
+    if direction.x < 0. {
+        player_transform.rotation = Quat::from_rotation_y(std::f32::consts::PI);
+    }
+    if direction.x > 0. {
+        player_transform.rotation = Quat::default();
+    }
 
     player_transform.translation.x += direction.x * player_speed.speed * time.delta_seconds();
     player_transform.translation.y += direction.y * player_speed.speed * time.delta_seconds();
+    player_transform.translation.z = -player_transform.translation.y + PLAYER_SPRITE_Y / 2.;
+}
+
+fn spawn_tower(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    query_player_transform: Query<&Transform, With<Player>>,
+    mut stopwatch: ResMut<TowerStopwatch>,
+    time: Res<Time>,
+) {
+    stopwatch.time.tick(time.delta());
+    if keyboard_input.pressed(KeyCode::Space) &&
+        stopwatch.time.elapsed_secs() > SIMPLE_TOWER_SPAWN_CD
+    {
+        let player_transform = query_player_transform.single();
+        let mut spawn_location = player_transform.translation;
+        spawn_location.y -= 14.;
+        spawn_location.z = -spawn_location.y + SIMPLE_TOWER_Y / 2.;
+        if player_transform.rotation == Quat::default() {
+            spawn_location.x += TOWER_SPAWN_DISTANCE;
+        } else {
+            spawn_location.x -= TOWER_SPAWN_DISTANCE;
+        }
+        commands.spawn(SimpleTowerBundle {
+            health: Health {
+                current: 240,
+                max: 240,
+            },
+            tower: SimpleTower,
+            sprite: SpriteSheetBundle {
+               texture: asset_server.load("SimpleTower.png"),
+                transform: Transform {
+                    translation: spawn_location,
+                    scale: Vec3::new(0.5,0.5,1.),
+                    ..default()
+                },
+                ..default()
+            },
+        });
+        stopwatch.time.reset();
+    }
 }
