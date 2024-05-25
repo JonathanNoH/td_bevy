@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
+use bevy::sprite::MaterialMesh2dBundle;
 use std::time::Duration;
+
 
 const PLAYER_SPRITE_X: f32 = 45.;
 const PLAYER_SPRITE_Y: f32 = 51.;
@@ -10,6 +12,10 @@ const SIMPLE_TOWER_SPAWN_CD: f32 = 5.;
 const SIMPLE_TOWER_X: f32 = 21.;
 const SIMPLE_TOWER_Y: f32 = 27.;
 
+const HEALTH_BAR_RED: Color = Color::rgba(0.82,0.122,0.051,1.);
+const HEALTH_BAR_GREEN: Color = Color::rgba(0.129,0.859,0.18,1.);
+const HEALTH_BAR_GAP: f32= 10.;
+
 #[derive(Component)]
 struct Health {
     current: u32,
@@ -17,8 +23,17 @@ struct Health {
 }
 
 #[derive(Component)]
+struct CurrentHealthBar;
+#[derive(Component)]
+struct MaxHealthBar;
+
+#[derive(Component)]
 struct Speed {
     speed: f32,
+}
+ #[derive(Component)]
+struct HitBox {
+    hitbox: Rect,
 }
 
 #[derive(Component)]
@@ -47,6 +62,7 @@ fn main() {
         .add_systems(Update, (
             player_movement,
             spawn_tower,
+            draw_health_bars,
         ))
         .run();
 }
@@ -59,8 +75,9 @@ fn setup(
     // load textures
     // player texture
     let texture: Handle<Image>  = asset_server.load("disciple-45x51.png");
+    let player_size = Vec2::new(PLAYER_SPRITE_X, PLAYER_SPRITE_Y);
     let layout = TextureAtlasLayout::from_grid(
-        Vec2::new(PLAYER_SPRITE_X, PLAYER_SPRITE_Y),
+        player_size,
         4,
         3,
         None,
@@ -79,6 +96,9 @@ fn setup(
         Speed {
             speed: 300.,
         },
+        HitBox {
+            hitbox: Rect::from_center_size(Vec2::ZERO, player_size),
+        },
         SpriteSheetBundle {
             texture,
             atlas: TextureAtlas {
@@ -96,10 +116,10 @@ fn setup(
 
 fn player_movement(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(&mut Transform, &Speed), With<Player>>,
+    mut query: Query<(&mut Transform, &mut Sprite,  &Speed), With<Player>>,
     time: Res<Time>,
 ) {
-    let (mut player_transform, player_speed) = query.single_mut();
+    let (mut player_transform, mut player_sprite, player_speed) = query.single_mut();
     let mut direction = Vec3::new(0.,0., 0.);
 
     if keyboard_input.pressed(KeyCode::KeyW) {
@@ -116,10 +136,11 @@ fn player_movement(
     }
     direction = direction.normalize_or_zero();
     if direction.x < 0. {
-        player_transform.rotation = Quat::from_rotation_y(std::f32::consts::PI);
+        //player_transform.rotation = Quat::from_rotation_y(std::f32::consts::PI);
+        player_sprite.flip_x = true;
     }
     if direction.x > 0. {
-        player_transform.rotation = Quat::default();
+        player_sprite.flip_x = false;
     }
 
     player_transform.translation.x += direction.x * player_speed.speed * time.delta_seconds();
@@ -165,5 +186,56 @@ fn spawn_tower(
             },
         });
         stopwatch.time.reset();
+    }
+}
+
+fn draw_health_bars(
+    mut commands: Commands,
+    mut query: Query<(Entity, Option<&Children>, &Health, &HitBox)>,
+    mut query_health_bar: Query<&mut Transform, With<CurrentHealthBar>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (parent, children, health, hitbox) in query.iter_mut() {
+        if let Some(children) = children {
+            for child in children {
+                if let Ok(mut transform) = query_health_bar.get_mut(*child) {
+                    transform.scale.x = health.current as f32;
+                }
+            }
+        } else {
+            // check max health
+            //if health.current == health.max { continue };
+
+            let gap = HEALTH_BAR_GAP + hitbox.hitbox.height()/2.;
+            // spawn red part
+            let red_health_bar = commands.spawn((
+                MaxHealthBar,
+                MaterialMesh2dBundle {
+                    mesh: meshes.add(Rectangle::default()).into(),
+                    transform: Transform {
+                        translation: Vec3::new(0., gap, 1.),
+                        scale: Vec3::new(health.max as f32, 4., 1.),
+                        ..default()
+                    },
+                    material: materials.add(HEALTH_BAR_RED),
+                    ..default()
+                }
+            )).id();
+            let green_health_bar = commands.spawn((
+                CurrentHealthBar,
+                MaterialMesh2dBundle {
+                    mesh: meshes.add(Rectangle::default()).into(),
+                    transform: Transform {
+                        translation: Vec3::new(0., gap, 2.),
+                        scale: Vec3::new(health.current as f32, 4., 1.),
+                        ..default()
+                    },
+                    material: materials.add(HEALTH_BAR_GREEN),
+                    ..default()
+                }
+            )).id();
+            commands.entity(parent).push_children(&[red_health_bar, green_health_bar]);
+        }
     }
 }
