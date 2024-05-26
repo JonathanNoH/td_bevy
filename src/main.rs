@@ -16,6 +16,12 @@ const HEALTH_BAR_RED: Color = Color::rgba(0.82,0.122,0.051,1.);
 const HEALTH_BAR_GREEN: Color = Color::rgba(0.129,0.859,0.18,1.);
 const HEALTH_BAR_GAP: f32= 10.;
 
+const EYE_MONSTER_SPAWN_CD: u64 = 8;
+const EYE_MONSTER_X: f32 = 60.;
+const EYE_MONSTER_Y: f32 = 54.;
+
+// Attributes
+
 #[derive(Component)]
 struct Health {
     current: u32,
@@ -24,6 +30,7 @@ struct Health {
 
 #[derive(Component)]
 struct CurrentHealthBar;
+
 #[derive(Component)]
 struct MaxHealthBar;
 
@@ -31,10 +38,32 @@ struct MaxHealthBar;
 struct Speed {
     speed: f32,
 }
+
  #[derive(Component)]
 struct HitBox {
     hitbox: Rect,
 }
+
+#[derive(Component)]
+struct Damage {
+    value: u32,
+    cooldown: f32,
+    last_damage_time: f32,
+}
+
+// Resources
+
+#[derive(Resource)]
+struct TowerStopwatch {
+    time: Stopwatch,
+}
+
+#[derive(Resource)]
+struct EyeMonsterSpawnTimer {
+    timer: Timer,
+}
+
+// Entities
 
 #[derive(Component)]
 struct Player;
@@ -42,16 +71,26 @@ struct Player;
 #[derive(Component)]
 struct SimpleTower;
 
-#[derive(Resource)]
-struct TowerStopwatch {
-    time: Stopwatch,
-}
+#[derive(Component)]
+struct EyeMonster;
+
+// Bundles
 
 #[derive(Bundle)]
 struct SimpleTowerBundle {
     health: Health,
     tower: SimpleTower,
     sprite: SpriteSheetBundle,
+}
+
+#[derive(Bundle)]
+struct EyeMonsterBundle {
+    health: Health,
+    eyemonster: EyeMonster,
+    sprite: SpriteSheetBundle,
+    damage: Damage,
+    hitbox: HitBox,
+    speed: Speed,
 }
 
 
@@ -63,6 +102,8 @@ fn main() {
             player_movement,
             spawn_tower,
             draw_health_bars,
+            eye_monster_spawner,
+            eye_monster_movement,
         ))
         .run();
 }
@@ -108,10 +149,15 @@ fn setup(
             ..default()
         }
     ));
-    // insert timer
+    // insert stopwatch
     let mut stopwatch = Stopwatch::new();
     stopwatch.set_elapsed(Duration::from_secs_f32(SIMPLE_TOWER_SPAWN_CD));
     commands.insert_resource(TowerStopwatch { time: stopwatch });
+    // insert monster spawn timer
+    commands.insert_resource(EyeMonsterSpawnTimer {
+        timer: Timer::new(Duration::from_secs(EYE_MONSTER_SPAWN_CD),
+            TimerMode::Repeating)
+    });
 }
 
 fn player_movement(
@@ -236,6 +282,66 @@ fn draw_health_bars(
                 }
             )).id();
             commands.entity(parent).push_children(&[red_health_bar, green_health_bar]);
+        }
+    }
+}
+
+fn eye_monster_spawner(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut config: ResMut<EyeMonsterSpawnTimer>,
+    asset_server: Res<AssetServer>,
+) {
+    config.timer.tick(time.delta());
+
+    if config.timer.finished() {
+        commands.spawn(EyeMonsterBundle {
+            health: Health {
+                current: 100,
+                max: 100,
+            },
+            eyemonster: EyeMonster,
+            damage: Damage {
+                value: 10,
+                cooldown: 3.,
+                last_damage_time: 0.,
+            },
+            sprite: SpriteSheetBundle {
+                transform: Transform::from_xyz(100., 100., -100.,),
+                texture: asset_server.load("eyemonster.png"),
+                ..default()
+            },
+            hitbox: HitBox {
+                hitbox: Rect::from_center_size(Vec2::ZERO, Vec2::new(EYE_MONSTER_X, EYE_MONSTER_Y))
+            },
+            speed: Speed {
+                speed: 150.,
+            }
+        });
+    }
+}
+
+fn eye_monster_movement(
+    mut query_monster: Query<(&mut Transform, &Speed, &mut Sprite), (With<EyeMonster>, Without<Player>)>,
+    query_player: Query<&Transform, (With<Player>, Without<EyeMonster>)>,
+    time: Res<Time>,
+) {
+    let player_coords = query_player.single().translation;
+    for (mut transform, speed, mut sprite) in query_monster.iter_mut() {
+        let direction = player_coords;
+        let distance_vector = Vec2::new(
+            player_coords.x - transform.translation.x,
+            player_coords.y - transform.translation.y,
+        ).normalize_or_zero();
+
+        transform.translation.x += distance_vector.x * speed.speed * time.delta_seconds();
+        transform.translation.y += distance_vector.y * speed.speed * time.delta_seconds();
+        transform.translation.z = -transform.translation.y + EYE_MONSTER_Y/ 2.;
+        if direction.x < 0. {
+            sprite.flip_x = true;
+        }
+        if direction.x > 0. {
+            sprite.flip_x = false;
         }
     }
 }
