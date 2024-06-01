@@ -158,7 +158,8 @@ fn setup(
     )).insert(Collider::capsule(
             Vec2::new(0., PLAYER_CAPSULE_BOTTOM),
             Vec2::new(0., PLAYER_CAPSULE_TOP),
-            PLAYER_SPRITE_X/2.));
+            PLAYER_SPRITE_X/2.))
+    .insert(Velocity::zero());
     // insert stopwatch
     let mut stopwatch = Stopwatch::new();
     stopwatch.set_elapsed(Duration::from_secs_f32(SIMPLE_TOWER_SPAWN_CD));
@@ -173,11 +174,11 @@ fn setup(
 
 fn player_movement(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(&mut Transform, &mut Sprite,  &Speed), With<Player>>,
+    mut query: Query<(&mut Velocity, &mut Sprite,  &Speed), With<Player>>,
     time: Res<Time>,
 ) {
-    let (mut player_transform, mut player_sprite, player_speed) = query.single_mut();
-    let mut direction = Vec3::new(0.,0., 0.);
+    let (mut velocity, mut player_sprite, player_speed) = query.single_mut();
+    let mut direction = Vec2::new(0.,0.);
 
     if keyboard_input.pressed(KeyCode::KeyW) {
         direction.y += 1.;
@@ -193,16 +194,14 @@ fn player_movement(
     }
     direction = direction.normalize_or_zero();
     if direction.x < 0. {
-        //player_transform.rotation = Quat::from_rotation_y(std::f32::consts::PI);
         player_sprite.flip_x = true;
     }
     if direction.x > 0. {
         player_sprite.flip_x = false;
     }
-
-    player_transform.translation.x += direction.x * player_speed.speed * time.delta_seconds();
-    player_transform.translation.y += direction.y * player_speed.speed * time.delta_seconds();
-    player_transform.translation.z = -player_transform.translation.y + PLAYER_SPRITE_Y / 2.;
+    direction.x *= player_speed.speed;
+    direction.y *= player_speed.speed;
+    velocity.linvel = direction;
 }
 
 fn spawn_tower(
