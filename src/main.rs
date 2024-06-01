@@ -1,11 +1,14 @@
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy::sprite::MaterialMesh2dBundle;
+use bevy_rapier2d::prelude::*;
 use std::time::Duration;
 
 
-const PLAYER_SPRITE_X: f32 = 45.;
-const PLAYER_SPRITE_Y: f32 = 51.;
+const PLAYER_SPRITE_X: f32 = 34.;
+const PLAYER_SPRITE_Y: f32 = 48.;
+const PLAYER_CAPSULE_TOP: f32 = 10.;
+const PLAYER_CAPSULE_BOTTOM: f32 = -10.;
 
 const TOWER_SPAWN_DISTANCE: f32 = 25.;
 const SIMPLE_TOWER_SPAWN_CD: f32 = 5.;
@@ -97,6 +100,8 @@ struct EyeMonsterBundle {
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(4.))
+        .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, (
             player_movement,
@@ -112,10 +117,11 @@ fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    mut rapier_configuration: ResMut<RapierConfiguration>,
 ) {
     // load textures
     // player texture
-    let texture: Handle<Image>  = asset_server.load("disciple-45x51.png");
+    let texture: Handle<Image>  = asset_server.load("player_sprite.png");
     let player_size = Vec2::new(PLAYER_SPRITE_X, PLAYER_SPRITE_Y);
     let layout = TextureAtlasLayout::from_grid(
         player_size,
@@ -140,6 +146,7 @@ fn setup(
         HitBox {
             hitbox: Rect::from_center_size(Vec2::ZERO, player_size),
         },
+        RigidBody::Dynamic,
         SpriteSheetBundle {
             texture,
             atlas: TextureAtlas {
@@ -148,7 +155,10 @@ fn setup(
             },
             ..default()
         }
-    ));
+    )).insert(Collider::capsule(
+            Vec2::new(0., PLAYER_CAPSULE_BOTTOM),
+            Vec2::new(0., PLAYER_CAPSULE_TOP),
+            PLAYER_SPRITE_X/2.));
     // insert stopwatch
     let mut stopwatch = Stopwatch::new();
     stopwatch.set_elapsed(Duration::from_secs_f32(SIMPLE_TOWER_SPAWN_CD));
@@ -158,6 +168,7 @@ fn setup(
         timer: Timer::new(Duration::from_secs(EYE_MONSTER_SPAWN_CD),
             TimerMode::Repeating)
     });
+    rapier_configuration.gravity = Vect::ZERO;
 }
 
 fn player_movement(
