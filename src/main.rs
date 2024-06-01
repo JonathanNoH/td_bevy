@@ -22,6 +22,8 @@ const HEALTH_BAR_GAP: f32= 10.;
 const EYE_MONSTER_SPAWN_CD: u64 = 8;
 const EYE_MONSTER_X: f32 = 60.;
 const EYE_MONSTER_Y: f32 = 54.;
+const EYE_MONSTER_CAPSULE_TOP: f32 = 0.;
+const EYE_MONSTER_CAPSULE_BOT: f32 = 0.;
 
 // Attributes
 
@@ -94,6 +96,7 @@ struct EyeMonsterBundle {
     damage: Damage,
     hitbox: HitBox,
     speed: Speed,
+    rigid_body: RigidBody,
 }
 
 
@@ -159,7 +162,8 @@ fn setup(
             Vec2::new(0., PLAYER_CAPSULE_BOTTOM),
             Vec2::new(0., PLAYER_CAPSULE_TOP),
             PLAYER_SPRITE_X/2.))
-    .insert(Velocity::zero());
+    .insert(Velocity::zero())
+    .insert(LockedAxes::ROTATION_LOCKED);
     // insert stopwatch
     let mut stopwatch = Stopwatch::new();
     stopwatch.set_elapsed(Duration::from_secs_f32(SIMPLE_TOWER_SPAWN_CD));
@@ -175,7 +179,6 @@ fn setup(
 fn player_movement(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut query: Query<(&mut Velocity, &mut Sprite,  &Speed), With<Player>>,
-    time: Res<Time>,
 ) {
     let (mut velocity, mut player_sprite, player_speed) = query.single_mut();
     let mut direction = Vec2::new(0.,0.);
@@ -326,27 +329,34 @@ fn eye_monster_spawner(
             },
             speed: Speed {
                 speed: 150.,
-            }
-        });
+            },
+            rigid_body: RigidBody::Dynamic,
+        })
+        .insert(Velocity::zero())
+        .insert(Collider::capsule(
+                Vect::new(0., EYE_MONSTER_CAPSULE_BOT),
+                Vect::new(0., EYE_MONSTER_CAPSULE_TOP),
+                EYE_MONSTER_X/2.
+            ))
+        .insert(LockedAxes::ROTATION_LOCKED);
     }
 }
 
 fn eye_monster_movement(
-    mut query_monster: Query<(&mut Transform, &Speed, &mut Sprite), (With<EyeMonster>, Without<Player>)>,
+    mut query_monster: Query<(&mut Velocity, &Transform, &Speed, &mut Sprite), (With<EyeMonster>, Without<Player>)>,
     query_player: Query<&Transform, (With<Player>, Without<EyeMonster>)>,
-    time: Res<Time>,
 ) {
     let player_coords = query_player.single().translation;
-    for (mut transform, speed, mut sprite) in query_monster.iter_mut() {
+    for (mut velocity, transform, speed, mut sprite) in query_monster.iter_mut() {
         let direction = player_coords;
-        let distance_vector = Vec2::new(
+        let mut distance_vector = Vect::new(
             player_coords.x - transform.translation.x,
             player_coords.y - transform.translation.y,
         ).normalize_or_zero();
+        distance_vector.x *= speed.speed;
+        distance_vector.y *= speed.speed;
 
-        transform.translation.x += distance_vector.x * speed.speed * time.delta_seconds();
-        transform.translation.y += distance_vector.y * speed.speed * time.delta_seconds();
-        transform.translation.z = -transform.translation.y + EYE_MONSTER_Y/ 2.;
+        velocity.linvel = distance_vector;
         if direction.x < 0. {
             sprite.flip_x = true;
         }
